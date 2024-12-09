@@ -1,0 +1,207 @@
+import React, { useState, useEffect } from 'react';
+import { Play, Pause, RotateCcw } from 'lucide-react';
+
+const MOVES = [
+  [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+  [1, -2], [1, 2], [2, -1], [2, 1]
+];
+
+// More suboptimal moves spread through the latter half
+const SUBOPTIMAL_MOVES = new Set([
+  35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 60, 61
+]);
+
+const KnightsTourVisualization = () => {
+  const [board, setBoard] = useState(Array(8).fill().map(() => Array(8).fill(-1)));
+  const [currentPos, setCurrentPos] = useState([0, 0]);
+  const [moveNumber, setMoveNumber] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const [speed, setSpeed] = useState(500);
+  const [path, setPath] = useState([]);
+  const [triedMoves, setTriedMoves] = useState(new Map());
+  const [isBacktracking, setIsBacktracking] = useState(false);
+  const [backtrackCount, setBacktrackCount] = useState(0);
+  
+  const isValidMove = (x, y) => {
+    return x >= 0 && x < 8 && y >= 0 && y < 8 && board[x][y] === -1;
+  };
+
+  const countAccessibleMoves = (x, y) => {
+    let count = 0;
+    for (const [dx, dy] of MOVES) {
+      const newX = x + dx;
+      const newY = y + dy;
+      if (isValidMove(newX, newY)) count++;
+    }
+    return count;
+  };
+
+  const getPositionKey = (pos) => `${pos[0]},${pos[1]}`;
+
+  const findNextMove = (pos) => {
+    const posKey = getPositionKey(pos);
+    const tried = triedMoves.get(posKey) || new Set();
+    
+    let validMoves = [];
+    for (const [dx, dy] of MOVES) {
+      const newX = pos[0] + dx;
+      const newY = pos[1] + dy;
+      const moveKey = `${newX},${newY}`;
+      
+      if (isValidMove(newX, newY) && !tried.has(moveKey)) {
+        const accessibility = countAccessibleMoves(newX, newY);
+        validMoves.push({ x: newX, y: newY, accessibility });
+      }
+    }
+
+    if (validMoves.length === 0) return null;
+
+    // For suboptimal moves, choose the absolute worst move
+    if (SUBOPTIMAL_MOVES.has(moveNumber) && validMoves.length > 1) {
+      validMoves.sort((a, b) => b.accessibility - a.accessibility);
+      validMoves = [validMoves[0]]; // Take the worst move
+    } else {
+      // Normal Warnsdorff's rule
+      validMoves.sort((a, b) => a.accessibility - b.accessibility);
+    }
+
+    const move = validMoves[0];
+    tried.add(`${move.x},${move.y}`);
+    const newTriedMoves = new Map(triedMoves);
+    newTriedMoves.set(posKey, tried);
+    setTriedMoves(newTriedMoves);
+    return [move.x, move.y];
+  };
+
+  const reset = () => {
+    setBoard(Array(8).fill().map(() => Array(8).fill(-1)));
+    setCurrentPos([0, 0]);
+    setMoveNumber(0);
+    setIsRunning(false);
+    setPath([[0, 0]]);
+    setTriedMoves(new Map());
+    setIsBacktracking(false);
+    setBacktrackCount(0);
+    const newBoard = Array(8).fill().map(() => Array(8).fill(-1));
+    newBoard[0][0] = 0;
+    setBoard(newBoard);
+  };
+
+  useEffect(() => {
+    reset();
+  }, []);
+
+  useEffect(() => {
+    let timer;
+    if (isRunning && moveNumber < 63) {
+      timer = setTimeout(() => {
+        const nextMove = findNextMove(currentPos);
+        
+        if (nextMove) {
+          const [nextX, nextY] = nextMove;
+          const newBoard = board.map(row => [...row]);
+          newBoard[nextX][nextY] = moveNumber + 1;
+          setBoard(newBoard);
+          setCurrentPos([nextX, nextY]);
+          setMoveNumber(moveNumber + 1);
+          setPath([...path, [nextX, nextY]]);
+          setIsBacktracking(false);
+        } else {
+          setIsBacktracking(true);
+          setBacktrackCount(prev => prev + 1);
+          if (path.length > 1) {
+            const newPath = [...path];
+            const lastPos = newPath.pop();
+            const newBoard = board.map(row => [...row]);
+            newBoard[lastPos[0]][lastPos[1]] = -1;
+            const previousPos = newPath[newPath.length - 1];
+            setBoard(newBoard);
+            setCurrentPos(previousPos);
+            setMoveNumber(moveNumber - 1);
+            setPath(newPath);
+          } else {
+            setIsRunning(false);
+          }
+        }
+      }, speed);
+    }
+    return () => clearTimeout(timer);
+  }, [isRunning, currentPos, moveNumber, board, speed, path, triedMoves]);
+
+  const KnightPiece = () => (
+    <svg viewBox="0 0 45 45" width="24" height="24" className="absolute">
+      <g fill="none" fillRule="evenodd" stroke="#000" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" fill="#000"/>
+        <path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" fill="#000"/>
+      </g>
+    </svg>
+  );
+
+  return (
+    <div className="p-4 max-w-2xl mx-auto">
+      <div className="mb-4 flex justify-between items-center">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setIsRunning(!isRunning)}
+            className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            {isRunning ? <Pause size={24} /> : <Play size={24} />}
+          </button>
+          <button
+            onClick={reset}
+            className="p-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+          >
+            <RotateCcw size={24} />
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <label>Speed:</label>
+          <input
+            type="range"
+            min="100"
+            max="1000"
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            className="w-32"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-8 gap-0 border-2 border-gray-300 p-0">
+        {board.map((row, x) => (
+          row.map((cell, y) => {
+            const isLightSquare = (x + y) % 2 === 0;
+            const isVisited = cell !== -1;
+            const isCurrentPos = x === currentPos[0] && y === currentPos[1];
+            
+            return (
+              <div
+                key={`${x}-${y}`}
+                className={`
+                  aspect-square relative flex items-center justify-center
+                  ${isLightSquare ? 'bg-amber-100' : 'bg-amber-800'}
+                  ${isVisited ? 'bg-green-500 bg-opacity-50' : ''}
+                  ${isCurrentPos && isBacktracking ? 'bg-red-600' : ''}
+                  transition-colors duration-300
+                `}
+              >
+                <span className={`${isVisited ? 'text-black font-bold' : ''}`}>
+                  {cell !== -1 ? cell : ''}
+                </span>
+                {isCurrentPos && <KnightPiece />}
+              </div>
+            );
+          })
+        ))}
+      </div>
+
+      <div className="mt-4 text-center">
+        <p>Moves completed: {moveNumber} / 63</p>
+        <p>Backtracks: {backtrackCount}</p>
+        {moveNumber === 63 && <p className="text-green-500">Tour Complete!</p>}
+      </div>
+    </div>
+  );
+};
+
+export default KnightsTourVisualization;
